@@ -188,7 +188,13 @@ func parse(fs *flag.FlagSet, args []string) ([]string, int, bool) {
 	}
 }
 
+// buildVersion is set by release builds with -ldflags -X.
+var buildVersion string
+
 func version() string {
+	if buildVersion != "" {
+		return buildVersion
+	}
 	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 		return bi.Main.Version
 	}

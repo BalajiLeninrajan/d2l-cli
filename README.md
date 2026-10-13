@@ -6,6 +6,8 @@ Run `d2l` to browse your courses and their content, download files into a local 
 
 ## Install
 
+Download a binary for your platform from the [releases page](https://github.com/BalajiLeninrajan/d2l-cli/releases), or build it with Go:
+
 ```sh
 go install github.com/BalajiLeninrajan/d2l-cli/cmd/d2l@latest
 ```
