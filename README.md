@@ -10,7 +10,9 @@ Run `d2l` to browse your courses and their content, download files into a local 
 go install github.com/BalajiLeninrajan/d2l-cli/cmd/d2l@latest
 ```
 
-Logging in needs a Chromium-based browser (Chrome, Chromium, Brave, Edge, Vivaldi) or a Firefox-based one (Firefox, Zen, LibreWolf, Floorp). It works on Linux, macOS and Windows.
+Logging in needs a Chromium-based browser (Chrome, Chromium, Brave, Edge, Vivaldi) or a Firefox-based one (Firefox, Zen, LibreWolf, Floorp).
+
+d2l is developed and tested on Linux. It builds for macOS and Windows, but neither is tested or supported.
 
 ## Logging in
 
@@ -22,7 +24,7 @@ Learn has no API keys for students, so d2l uses a browser session. `d2l login` o
 
 d2l launches the browser with its automation port open and reads the cookies from that window, over the Chrome DevTools Protocol for Chromium-based browsers or WebDriver BiDi for Firefox-based ones. It never reads your normal browser profile, so your other tabs and logins stay out of it.
 
-The default browser comes from `xdg-settings` on Linux, LaunchServices on macOS and the registry on Windows. Flatpak and Snap installs work; their login profile lives inside the app's sandbox folder. If the default can't be driven (Safari, for example), d2l uses the first supported browser it finds and says which. To pick one yourself, set `browser` in the config to a path or command.
+The default browser comes from `xdg-settings`. Flatpak and Snap installs work; their login profile lives inside the app's sandbox folder. If the default can't be driven (GNOME Web, for example), d2l uses the first supported browser it finds and says which. To pick one yourself, set `browser` in the config to a path or command.
 
 The login profile stays between logins (`~/.local/state/d2l/browser/<name>`, or `~/.var/app/<id>/data/d2l-login` for Flatpak). If you picked "stay signed in" at SSO, later logins first try a hidden window and often finish without showing anything. Pass `-i` to skip that attempt and show the window right away.
 
