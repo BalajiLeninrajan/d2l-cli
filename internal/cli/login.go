@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,10 +19,9 @@ import (
 )
 
 func runLogin(args []string) int {
-	fs := newFlagSet("login", "[--chromium [-i]] [--cookie HEADER]")
-	chromium := fs.Bool("chromium", false, "log in through a Chromium window driven by d2l instead of your default browser")
+	fs := newFlagSet("login", "[-i|--interactive] [--cookie HEADER]")
 	var interactive bool
-	fs.BoolVar(&interactive, "i", false, "with --chromium, open the window right away instead of trying a hidden refresh first")
+	fs.BoolVar(&interactive, "i", false, "open the browser window right away instead of trying a hidden renewal first")
 	fs.BoolVar(&interactive, "interactive", false, "same as -i")
 	cookie := fs.String("cookie", "", `session cookies "d2lSessionVal=...; d2lSecureSessionVal=...", or - to read them from stdin`)
 	pos, code, ok := parse(fs, args)
@@ -63,21 +61,16 @@ func runLogin(args []string) int {
 	}
 
 	var sess *session.Session
-	switch {
-	case *cookie != "":
+	if *cookie != "" {
 		sess, err = session.FromHeader(cfg.BaseURL, *cookie)
-	case !*chromium && !interactive:
-		sess, err = session.LoginDefaultBrowser(ctx, cfg.BaseURL, validate, logf)
-		switch {
-		case errors.Is(err, session.ErrChromiumDefault):
-			logf("Your default browser is Chromium-based, and d2l can't read its cookies. Using a Chromium window instead.")
-			sess, err = chromiumLogin(ctx, cfg, false, logf)
-		case errors.Is(err, session.ErrNoBrowserStore):
-			logf("No profile found for your default browser, so d2l can't read its session. Using a Chromium window instead.")
-			sess, err = chromiumLogin(ctx, cfg, false, logf)
-		}
-	default:
-		sess, err = chromiumLogin(ctx, cfg, interactive, logf)
+	} else {
+		sess, err = session.Login(ctx, session.LoginOptions{
+			BaseURL:     cfg.BaseURL,
+			Browser:     cfg.Browser,
+			Interactive: interactive,
+			Validate:    validate,
+			Logf:        logf,
+		})
 	}
 	if err != nil {
 		if ctx.Err() != nil {
@@ -94,7 +87,7 @@ func runLogin(args []string) int {
 			case isUnauthorized(err) && *cookie != "":
 				fmt.Fprintln(os.Stderr, "Brightspace rejected those cookies, so nothing was saved. Copy both cookies again from a tab where you are logged in.")
 			case isUnauthorized(err):
-				fmt.Fprintln(os.Stderr, "The browser finished login but Brightspace rejected the captured session, so nothing was saved. Try d2l login --chromium -i.")
+				fmt.Fprintln(os.Stderr, "The browser finished login but Brightspace rejected the captured session, so nothing was saved. Try d2l login -i.")
 			default:
 				fmt.Fprintf(os.Stderr, "Could not check the session (%v), so nothing was saved.\n", err)
 			}
@@ -107,15 +100,6 @@ func runLogin(args []string) int {
 	}
 	fmt.Printf("Logged in as %s %s (%s)\n", who.FirstName, who.LastName, who.UniqueName)
 	return exitOK
-}
-
-func chromiumLogin(ctx context.Context, cfg *config.Config, interactive bool, logf func(string, ...any)) (*session.Session, error) {
-	return session.Login(ctx, session.LoginOptions{
-		BaseURL:     cfg.BaseURL,
-		Browser:     cfg.Browser,
-		Interactive: interactive,
-		Logf:        logf,
-	})
 }
 
 // readCookie reads the cookie header from stdin, without echo when stdin is
@@ -147,7 +131,7 @@ func whoAmI(ctx context.Context, sess *session.Session) (*d2l.WhoAmI, error) {
 
 func runLogout(args []string) int {
 	fs := newFlagSet("logout", "[--all]")
-	all := fs.Bool("all", false, "also delete the saved browser profile")
+	all := fs.Bool("all", false, "also delete the browser profiles d2l logs in with")
 	pos, code, ok := parse(fs, args)
 	if !ok {
 		return code
@@ -164,10 +148,10 @@ func runLogout(args []string) int {
 		fmt.Println("Logged out.")
 		return exitOK
 	}
-	if err := os.RemoveAll(filepath.Join(config.StateDir(), "browser")); err != nil {
-		fmt.Fprintln(os.Stderr, "d2l: deleting browser profile:", err)
+	if err := session.DeleteProfiles(); err != nil {
+		fmt.Fprintln(os.Stderr, "d2l: deleting browser profiles:", err)
 		return exitFail
 	}
-	fmt.Println("Logged out and deleted the saved browser profile.")
+	fmt.Println("Logged out and deleted the login browser profiles.")
 	return exitOK
 }

@@ -4,127 +4,70 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/chromedp/cdproto/cdp"
-	"github.com/chromedp/cdproto/network"
-	"github.com/chromedp/chromedp"
-
-	"github.com/BalajiLeninrajan/d2l-cli/internal/config"
 )
 
 // LoginOptions controls how Login drives the browser.
 type LoginOptions struct {
 	BaseURL string
-	Browser string // empty means search for one
+	Browser string // command from the config; empty means the default browser
 	// Interactive skips the silent headless attempt and opens a window right away.
 	Interactive bool
 	// Silent only tries the hidden browser and never opens a window.
 	Silent bool
+	// Validate checks captured cookies against the server. Login keeps
+	// waiting until it accepts a session. Nil accepts the first one.
+	Validate func(context.Context, *Session) error
 	// Logf receives progress lines.
 	Logf func(format string, args ...any)
 }
 
-// ErrNoBrowser means no Chromium-family browser was found.
-var ErrNoBrowser = errors.New("no Chromium-family browser found. Set browser in the config (d2l config --edit) or use d2l login --cookie -")
-
 const silentTimeout = 25 * time.Second
 
-// Login opens Chromium on the Brightspace home page and waits until SSO lands
-// back on /d2l/, then captures the session cookies.
+// Login launches a browser on Learn with a profile of its own and waits for
+// a session the server accepts, reading cookies over the browser's automation
+// protocol (CDP for Chromium-based browsers, WebDriver BiDi for Firefox-based
+// ones). The user's own browser profile is never touched.
 //
-// The browser uses a dedicated profile under the state dir, so if the identity
-// provider remembers you ("stay signed in"), a headless run can refresh the
-// session without showing a window.
+// The profile persists, so if the identity provider remembers the user
+// ("stay signed in"), a hidden run can renew the session without a window.
 func Login(ctx context.Context, o LoginOptions) (*Session, error) {
 	logf := o.Logf
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	exe, err := findBrowser(o.Browser)
+	b, err := ResolveBrowser(o.Browser, logf)
 	if err != nil {
 		return nil, err
 	}
+	profile := b.ProfileDir()
 	// A first login has no profile for the identity provider to remember,
 	// so a hidden attempt could only time out.
-	_, statErr := os.Stat(profileDir())
+	_, statErr := os.Stat(profile)
 	hasProfile := statErr == nil
 	if o.Silent {
 		if !hasProfile {
 			return nil, errors.New("no saved browser profile")
 		}
-		return runBrowser(ctx, o, exe, true, silentTimeout)
+		return runLogin(ctx, o, b, profile, true, silentTimeout)
 	}
 	if !o.Interactive && hasProfile {
-		logf("Trying silent login with the saved browser profile...")
-		s, err := runBrowser(ctx, o, exe, true, silentTimeout)
+		logf("Trying a hidden %s with the saved login profile...", b.Name)
+		s, err := runLogin(ctx, o, b, profile, true, silentTimeout)
 		if err == nil || ctx.Err() != nil {
 			return s, err
 		}
-		logf("Silent login didn't finish (%v); opening a browser window.", err)
+		logf("That didn't finish (%v); opening a window.", err)
 	}
 	if !hasDisplay() {
 		return nil, errors.New("no display to open a browser window on. Log in on a machine with a desktop, or use d2l login --cookie -")
 	}
-	logf("Log in through the browser window. It closes on its own when you reach Learn.")
-	s, err := runBrowser(ctx, o, exe, false, 5*time.Minute)
-	if err != nil && ctx.Err() == nil && strings.HasPrefix(err.Error(), "starting browser") {
-		err = fmt.Errorf("%w. If the browser cannot run here, use d2l login --cookie -", err)
-	}
-	return s, err
-}
-
-func profileDir() string { return filepath.Join(config.StateDir(), "browser") }
-
-// browserNames are tried in order when the config names no browser. It
-// extends chromedp's list with other Chromium-family browsers.
-func browserNames() []string {
-	switch runtime.GOOS {
-	case "darwin":
-		return []string{
-			"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-			"/Applications/Chromium.app/Contents/MacOS/Chromium",
-			"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-			"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-		}
-	case "windows":
-		return []string{
-			"chrome", "msedge", "brave",
-			`C:\Program Files\Google\Chrome\Application\chrome.exe`,
-			`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
-			`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
-			`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
-		}
-	}
-	return []string{
-		"chromium", "chromium-browser", "chromium-freeworld",
-		"google-chrome", "google-chrome-stable", "google-chrome-beta", "google-chrome-unstable",
-		"brave-browser", "brave", "microsoft-edge", "microsoft-edge-stable",
-		"chrome", "/usr/bin/google-chrome", "/snap/bin/chromium",
-	}
-}
-
-// findBrowser resolves the browser to run: the configured one if set,
-// otherwise the first of browserNames that exists.
-func findBrowser(configured string) (string, error) {
-	if configured != "" {
-		p, err := exec.LookPath(configured)
-		if err != nil {
-			return "", fmt.Errorf("browser %q from the config: %w", configured, err)
-		}
-		return p, nil
-	}
-	for _, name := range browserNames() {
-		if p, err := exec.LookPath(name); err == nil {
-			return p, nil
-		}
-	}
-	return "", ErrNoBrowser
+	logf("Log in to Learn in the %s window. It closes on its own once you're in.", b.Name)
+	return runLogin(ctx, o, b, profile, false, 5*time.Minute)
 }
 
 // hasDisplay reports whether a window can be shown. Only Linux and the BSDs
@@ -137,80 +80,88 @@ func hasDisplay() bool {
 	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
 }
 
-func runBrowser(ctx context.Context, o LoginOptions, exe string, headless bool, timeout time.Duration) (*Session, error) {
-	// The timeout covers starting the browser and the first page load too,
-	// which can hang on an unresponsive sign-in page.
+func runLogin(ctx context.Context, o LoginOptions, b *Browser, profile string, headless bool, timeout time.Duration) (*Session, error) {
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.UserDataDir(profileDir()),
-		chromedp.ExecPath(exe),
-	)
-	if !headless {
-		opts = append(opts, chromedp.VisibleWindow)
-	}
-	allocCtx, cancelAlloc := chromedp.NewExecAllocator(tctx, opts...)
-	defer cancelAlloc()
-	bctx, cancelBrowser := chromedp.NewContext(allocCtx)
-	defer cancelBrowser()
-
-	// stopped explains why bctx ended: the caller cancelled, the timeout
-	// passed, or the user closed the window.
 	stopped := func(err error) error {
 		switch {
 		case ctx.Err() != nil:
 			return ctx.Err()
 		case tctx.Err() != nil:
 			return errors.New("timed out waiting for login")
-		case bctx.Err() != nil:
-			return errors.New("browser closed before login finished")
 		}
 		return err
 	}
 
-	if err := chromedp.Do(bctx, chromedp.Navigate(o.BaseURL+"/d2l/home")); err != nil {
-		if ctx.Err() != nil || tctx.Err() != nil {
-			return nil, stopped(err)
-		}
-		return nil, fmt.Errorf("starting browser: %w", err)
+	if err := prepareProfile(b, profile); err != nil {
+		return nil, fmt.Errorf("creating the login profile: %w", err)
 	}
+	p, err := launch(tctx, b, profile, headless, o.BaseURL+"/d2l/home")
+	if err != nil {
+		return nil, stopped(err)
+	}
+	defer p.close()
 
+	// Learn may set session cookies before login finishes, and may or may not
+	// rotate them after, so a rejected pair is retried every few seconds
+	// rather than given up on.
+	tried := map[string]time.Time{}
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
 		select {
-		case <-bctx.Done():
-			return nil, stopped(bctx.Err())
+		case <-tctx.Done():
+			return nil, stopped(tctx.Err())
+		case <-p.exited:
+			return nil, errors.New("browser closed before login finished")
 		case <-tick.C:
 		}
-		loc, err := chromedp.Run(bctx, chromedp.Location())
-		if err != nil {
-			// Navigation in progress or the window was closed.
-			if bctx.Err() != nil {
-				return nil, stopped(err)
-			}
-			continue
-		}
-		if !strings.HasPrefix(loc, o.BaseURL+"/d2l/") || strings.HasPrefix(loc, o.BaseURL+"/d2l/login") {
-			continue
-		}
-		cookies, err := chromedp.Run(bctx, getCookies(o.BaseURL))
+		cookies, err := p.cookies(tctx)
 		if err != nil {
 			continue
 		}
-		s := &Session{BaseURL: o.BaseURL, SavedAt: time.Now()}
-		for _, c := range cookies {
-			s.Cookies = append(s.Cookies, Cookie{Name: c.Name, Value: c.Value, Domain: c.Domain, Path: c.Path})
+		s := sessionFrom(o.BaseURL, cookies)
+		if !s.hasSessionCookie() {
+			continue
 		}
-		if s.hasSessionCookie() {
+		fp := s.fingerprint()
+		if last, ok := tried[fp]; ok && time.Since(last) < 5*time.Second {
+			continue
+		}
+		tried[fp] = time.Now()
+		if o.Validate == nil || o.Validate(tctx, s) == nil {
 			return s, nil
 		}
 	}
 }
 
-func getCookies(baseURL string) chromedp.Action[[]*network.Cookie] {
-	return func(ctx context.Context, t *chromedp.Target) ([]*network.Cookie, error) {
-		r, err := cdp.Call(ctx, t, network.GetCookies, network.GetCookiesParams{URLs: []string{baseURL + "/"}})
-		return r.Cookies, err
+// sessionFrom keeps the cookies the browser would send to baseURL.
+func sessionFrom(baseURL string, cookies []Cookie) *Session {
+	s := &Session{BaseURL: baseURL, SavedAt: time.Now()}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return s
 	}
+	host := u.Hostname()
+	for _, c := range cookies {
+		d := strings.TrimPrefix(c.Domain, ".")
+		if host == d || strings.HasSuffix(host, "."+d) {
+			if c.Path == "" {
+				c.Path = "/"
+			}
+			s.Cookies = append(s.Cookies, c)
+		}
+	}
+	return s
+}
+
+// fingerprint identifies a pair of session cookie values.
+func (s *Session) fingerprint() string {
+	var b strings.Builder
+	for _, c := range s.Cookies {
+		if c.Name == "d2lSessionVal" || c.Name == "d2lSecureSessionVal" {
+			b.WriteString(c.Name + "=" + c.Value + ";")
+		}
+	}
+	return b.String()
 }

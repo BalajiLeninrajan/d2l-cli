@@ -39,16 +39,15 @@ Usage:
   d2l help                 show this help
 
 Login flags:
-  (none)                   use your default browser's Learn session, opening
-                           Learn there if you are not logged in (Firefox-based
-                           browsers such as Firefox, Zen and LibreWolf)
-  --chromium               log in through a Chromium window that d2l drives
-  -i, --interactive        with --chromium, show the window right away
+  (none)                   open your default browser on Learn in a separate
+                           window and save the session once you log in
+  -i, --interactive        show the window right away instead of trying a
+                           hidden renewal with the saved login profile first
   --cookie -               paste cookies copied from a logged-in browser
                            ("d2lSessionVal=...; d2lSecureSessionVal=...")
 
 Logout flags:
-  --all                    also delete the saved browser profile
+  --all                    also delete the login browser profiles
 
 Sync flags:
   --all                    sync every enrollment, not just current and pinned

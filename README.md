@@ -10,7 +10,7 @@ Run `d2l` to browse your courses and their content, download files into a local 
 go install github.com/BalajiLeninrajan/d2l-cli/cmd/d2l@latest
 ```
 
-Logging in works best with a Firefox-based default browser (Firefox, Zen, LibreWolf, Floorp). Otherwise it needs a Chromium-family browser such as Chromium, Chrome, Brave or Edge.
+Logging in needs a Chromium-based browser (Chrome, Chromium, Brave, Edge, Vivaldi) or a Firefox-based one (Firefox, Zen, LibreWolf, Floorp).
 
 ## Logging in
 
@@ -18,15 +18,15 @@ Logging in works best with a Firefox-based default browser (Firefox, Zen, LibreW
 d2l login
 ```
 
-Learn has no API keys for students, so d2l uses your browser session.
+Learn has no API keys for students, so d2l uses a browser session. `d2l login` opens your default browser in a separate window with a profile of its own, on Learn's login page. Sign in through Waterloo SSO and Duo as usual. Once Learn accepts the session, d2l saves it and closes the window. It prints who you are logged in as.
 
-By default `d2l login` uses your default browser. If you are already logged in to Learn there, it picks up that session right away. If not, it opens Learn in a new tab. Sign in through Waterloo SSO and Duo as usual. d2l then waits for the browser to save the session. Firefox-based browsers save it about every 15 seconds, so expect a short pause. d2l checks the session against the API and prints who you are logged in as.
+d2l launches the browser with its automation port open and reads the cookies from that window, over the Chrome DevTools Protocol for Chromium-based browsers or WebDriver BiDi for Firefox-based ones. It never reads your normal browser profile, so your other tabs and logins stay out of it.
 
-This works because Learn's session cookies only live in memory, and Firefox-based browsers write them to the profile's session store (`sessionstore-backups/recovery.jsonlz4`). d2l asks `xdg-settings` for the default browser and reads that browser's profiles, including Flatpak and Snap installs. When it has several profiles, the most recently written session store wins. If the default can't be determined, as on macOS, d2l looks at every Firefox, Zen, LibreWolf and Floorp profile.
+The default browser comes from `xdg-settings` on Linux, LaunchServices on macOS and the registry on Windows. Flatpak and Snap installs work; their login profile lives inside the app's sandbox folder. If the default can't be driven (Safari, for example), d2l uses the first supported browser it finds and says which. To pick one yourself, set `browser` in the config to a path or command.
 
-Chromium-family browsers encrypt their cookies, so d2l can't read them. If your default is one of those, or its profile can't be found, or you pass `--chromium`, d2l opens its own Chromium window instead. Once that window lands on Learn, d2l copies the session cookies and closes it. That browser keeps its own profile in `~/.local/state/d2l/browser`. If you picked "stay signed in" at SSO, later `--chromium` logins finish in a hidden browser. Pass `--chromium -i` to skip that attempt and show the window right away. d2l looks for Chromium, Chrome, Brave and Edge under their usual names. If yours lives somewhere else, set `browser` in the config.
+The login profile stays between logins (`~/.local/state/d2l/browser/<name>`, or `~/.var/app/<id>/data/d2l-login` for Flatpak). If you picked "stay signed in" at SSO, later logins first try a hidden window and often finish without showing anything. Pass `-i` to skip that attempt and show the window right away.
 
-The session is stored with mode 0600 in `~/.local/state/d2l/session.json`. Sessions expire. When one does, `d2l sync` first tries to renew it from your default browser's session, then from the saved Chromium profile. If neither works, or another command says the session expired, run `d2l login` again.
+The session is stored with mode 0600 in `~/.local/state/d2l/session.json`. Sessions expire. When one does, `d2l sync` tries the hidden renewal before giving up. If that doesn't work, or another command says the session expired, run `d2l login` again.
 
 If the browser login does not work on your machine, for example over SSH with no display, copy the `d2lSessionVal` and `d2lSecureSessionVal` cookies from a logged-in browser tab and paste them in:
 
@@ -36,15 +36,15 @@ d2l login --cookie -
 
 It asks for `d2lSessionVal=...; d2lSecureSessionVal=...` without echoing it. It also reads that line from a pipe. Passing the cookies as the flag value works too, but then they end up in your shell history.
 
-`d2l logout` deletes the saved session. `d2l logout --all` also deletes the browser profile, so the next login starts from scratch.
+`d2l logout` deletes the saved session. `d2l logout --all` also deletes the login browser profiles, so the next login starts from scratch.
 
 ## Usage
 
 | Command | What it does |
 | --- | --- |
 | `d2l` | Open the TUI. |
-| `d2l login [--chromium [-i]] [--cookie -]` | Log in and save the session. |
-| `d2l logout [--all]` | Delete the session, and with `--all` the browser profile. |
+| `d2l login [-i] [--cookie -]` | Log in and save the session. |
+| `d2l logout [--all]` | Delete the session, and with `--all` the login browser profiles. |
 | `d2l sync [--all] [-n] [FILTER...]` | Download course files. |
 | `d2l config [--edit] [--path]` | Print the config path, creating the file if needed. `--edit` opens it in `$EDITOR`. |
 | `d2l version` | Print the version. |
@@ -105,7 +105,8 @@ base_url = "https://learn.uwaterloo.ca"
 download_dir = "~/Learn"
 concurrency = 4
 
-# Chromium-family browser used by "d2l login". Leave unset to auto-detect.
+# Browser used by "d2l login", as a path or command. Leave unset to use the
+# default browser. Chromium- and Firefox-based browsers work.
 # browser = "/usr/bin/chromium-browser"
 
 # Files open with xdg-open unless the extension is listed here.

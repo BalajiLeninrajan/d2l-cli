@@ -169,21 +169,19 @@ func matchesAny(c d2l.Course, filters []string) bool {
 	return false
 }
 
-// refreshSession renews an expired session without user interaction: first
-// from the default browser's session store, then with a hidden Chromium using
-// the saved profile. It returns a client for the new session, or nil.
+// refreshSession renews an expired session in a hidden browser with the
+// saved login profile, for when SSO still remembers the user. It returns a
+// client for the new session, or nil.
 func refreshSession(ctx context.Context, cfg *config.Config) *d2l.Client {
-	fmt.Fprintln(os.Stderr, "The session expired. Trying to renew it from your browser...")
-	validate := func(ctx context.Context, s *session.Session) error {
-		_, err := whoAmI(ctx, s)
-		return err
-	}
-	sess, err := session.FromBrowser(ctx, cfg.BaseURL, validate)
+	fmt.Fprintln(os.Stderr, "The session expired. Trying to renew it with the saved login profile...")
+	sess, err := session.Login(ctx, session.LoginOptions{
+		BaseURL:  cfg.BaseURL,
+		Browser:  cfg.Browser,
+		Silent:   true,
+		Validate: func(ctx context.Context, s *session.Session) error { _, err := whoAmI(ctx, s); return err },
+	})
 	if err != nil {
-		sess, err = session.Login(ctx, session.LoginOptions{BaseURL: cfg.BaseURL, Browser: cfg.Browser, Silent: true})
-		if err != nil || validate(ctx, sess) != nil {
-			return nil
-		}
+		return nil
 	}
 	client, err := d2l.New(sess.BaseURL, sess.HTTPCookies())
 	if err != nil {

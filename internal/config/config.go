@@ -16,7 +16,7 @@ type Config struct {
 	BaseURL string `toml:"base_url"`
 	// DownloadDir is where course files are mirrored. "~" is expanded.
 	DownloadDir string `toml:"download_dir"`
-	// Browser is the Chromium-family binary used by `d2l login`. Empty means auto-detect.
+	// Browser is the browser `d2l login` launches, as a path or command. Empty means the default browser.
 	Browser string `toml:"browser"`
 	// Openers maps a file extension (no dot) to a command that runs detached, e.g. pdf = "zathura".
 	Openers map[string]string `toml:"openers"`
@@ -32,7 +32,8 @@ base_url = "https://learn.uwaterloo.ca"
 download_dir = "~/Learn"
 concurrency = 4
 
-# Chromium-family browser used by "d2l login". Leave unset to auto-detect.
+# Browser used by "d2l login", as a path or command. Leave unset to use the
+# default browser. Chromium- and Firefox-based browsers work.
 # browser = "/usr/bin/chromium-browser"
 
 # Files open with xdg-open unless the extension is listed here.
