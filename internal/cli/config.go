@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 
 	"github.com/BalajiLeninrajan/d2l-cli/internal/config"
+	"github.com/BalajiLeninrajan/d2l-cli/internal/files"
 )
 
 func runConfig(args []string) int {
@@ -35,10 +35,10 @@ func runConfig(args []string) int {
 	}
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
-		editor = "vi"
+		editor = files.DefaultEditor
 	}
-	// Through sh so EDITOR values with arguments ("code --wait") work.
-	cmd := exec.Command("sh", "-c", editor+` "$1"`, "d2l-edit", p)
+	// Through the shell so EDITOR values with arguments ("code --wait") work.
+	cmd := files.ShellCommand(editor, p)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "d2l: running %s: %v\n", editor, err)

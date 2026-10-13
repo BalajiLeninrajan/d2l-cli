@@ -11,10 +11,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/BalajiLeninrajan/d2l-cli/internal/config"
@@ -258,19 +256,10 @@ func OpenerFor(cfg *config.Config, target string) Opener {
 			return Opener{Cmd: shellCmd(cmd, target)}
 		}
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		return Opener{Cmd: exec.Command("open", target)}
-	default:
-		return Opener{Cmd: exec.Command("xdg-open", target)}
-	}
+	return Opener{Cmd: systemOpener(target)}
 }
 
-// shellCmd runs a user-configured command with target appended as "$1", so
-// commands like `zathura --fork` or `flatpak run org.foo.Bar` work.
-func shellCmd(command, target string) *exec.Cmd {
-	return exec.Command("sh", "-c", command+` "$1"`, "d2l-open", target)
-}
+func shellCmd(command, target string) *exec.Cmd { return ShellCommand(command, target) }
 
 // openerGrace is how long StartDetached watches an opener for an early
 // failure, such as a command that is not installed.
@@ -291,7 +280,7 @@ func StartDetached(cmd *exec.Cmd) error {
 	if errf != nil {
 		cmd.Stderr = errf
 	}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	detach(cmd)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting %s: %w", cmd.Path, err)
 	}

@@ -10,7 +10,7 @@ Run `d2l` to browse your courses and their content, download files into a local 
 go install github.com/BalajiLeninrajan/d2l-cli/cmd/d2l@latest
 ```
 
-Logging in needs a Chromium-based browser (Chrome, Chromium, Brave, Edge, Vivaldi) or a Firefox-based one (Firefox, Zen, LibreWolf, Floorp).
+Logging in needs a Chromium-based browser (Chrome, Chromium, Brave, Edge, Vivaldi) or a Firefox-based one (Firefox, Zen, LibreWolf, Floorp). It works on Linux, macOS and Windows.
 
 ## Logging in
 
