@@ -22,7 +22,7 @@ type tocMsg struct {
 
 func (m tocMsg) failure() error { return m.err }
 
-// freshMsg reports which File topics are already on disk and current.
+// freshMsg reports which File topics are cached and current.
 type freshMsg struct {
 	courseID int
 	fresh    map[int]bool
@@ -57,7 +57,7 @@ func (i nodeItem) Description() string {
 			s = "file"
 		}
 		if i.fresh {
-			s += " · ✓ downloaded"
+			s += " · ✓ cached"
 		}
 	case kindOf(*t) == kindLink:
 		s = "↗ link"
@@ -159,8 +159,8 @@ func (t *contentTab) setItems(check bool) tea.Cmd {
 	return cmd
 }
 
-// dir is the local folder of the current level.
-func (t *contentTab) dir() string { return files.ModuleDir(t.app.cfg, t.course, t.levels) }
+// dir is the cache folder of the current level.
+func (t *contentTab) dir() string { return files.ModuleDir(t.app.cache, t.course, t.levels) }
 
 // entry describes a topic of the current level.
 func (t *contentTab) entry(tp d2l.Topic) files.Entry {
@@ -297,11 +297,11 @@ func (t *contentTab) handleKey(k tea.KeyMsg, n d2l.Node) (tea.Cmd, bool) {
 	case key.Matches(k, keyDownload):
 		if n.Module != nil {
 			prefix := append(slices.Clone(t.path()), n.Module.Title)
-			dir := filepath.Join(t.dir(), files.DirNames(t.current())[n.Module.ModuleID])
+			dir := filepath.Join(a.cwd, files.DirNames(t.current())[n.Module.ModuleID])
 			es := files.Entries(n.Module, dir, prefix)
 			return func() tea.Msg { return newDownload(c, es) }, true
 		}
-		return downloadTopic(c, t.entry(*n.Topic)), true
+		return a.downloadTopic(c, t.entry(*n.Topic)), true
 	}
 	return nil, false
 }

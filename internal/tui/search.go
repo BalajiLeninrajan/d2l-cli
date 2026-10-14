@@ -97,7 +97,7 @@ func (v *searchView) Init() tea.Cmd {
 				if err != nil {
 					return nil
 				}
-				for _, e := range files.Entries(toc.Root(), files.CourseDir(a.cfg, c), nil) {
+				for _, e := range files.Entries(toc.Root(), files.CourseDir(a.cache, c), nil) {
 					if !e.Topic.IsHidden {
 						perCourse[i] = append(perCourse[i], searchHit{c: c, e: e})
 					}
@@ -172,7 +172,7 @@ func (v *searchView) Update(msg tea.Msg) tea.Cmd {
 		case key.Matches(msg, keyEnter):
 			return v.app.openTopic(h.c, h.e)
 		case key.Matches(msg, keyDownload):
-			return downloadTopic(h.c, h.e)
+			return v.app.downloadTopic(h.c, h.e)
 		case key.Matches(msg, keyWeb):
 			return openURL(v.app.client.TopicWebURL(h.c.ID(), h.e.Topic.TopicID))
 		}

@@ -2,7 +2,7 @@
 
 A terminal client for D2L Brightspace, set up for the University of Waterloo's Learn (learn.uwaterloo.ca).
 
-Run `d2l` to browse your courses and their content, download files into a local folder that mirrors the course structure, and open them in the app you choose. It also shows announcements, assignment due dates with submission status, and grades, and has fuzzy search. `d2l sync` downloads every file from your courses in one go.
+Run `d2l` to browse your courses and their content, open files in the app you choose, and download them into the current directory. It also shows announcements, assignment due dates with submission status, and grades, and has fuzzy search.
 
 ## Install
 
@@ -30,7 +30,7 @@ The default browser comes from `xdg-settings`. Flatpak and Snap installs work; t
 
 The login profile stays between logins (`~/.local/state/d2l/browser/<name>`, or `~/.var/app/<id>/data/d2l-login` for Flatpak). If you picked "stay signed in" at SSO, later logins first try a hidden window and often finish without showing anything. Pass `-i` to skip that attempt and show the window right away.
 
-The session is stored with mode 0600 in `~/.local/state/d2l/session.json`. Sessions expire. When one does, `d2l sync` tries the hidden renewal before giving up. If that doesn't work, or another command says the session expired, run `d2l login` again.
+The session is stored with mode 0600 in `~/.local/state/d2l/session.json`. Sessions expire. When d2l says the session expired, run `d2l login` again.
 
 If the browser login does not work on your machine, for example over SSH with no display, copy the `d2lSessionVal` and `d2lSecureSessionVal` cookies from a logged-in browser tab and paste them in:
 
@@ -49,25 +49,10 @@ It asks for `d2lSessionVal=...; d2lSecureSessionVal=...` without echoing it. It 
 | `d2l` | Open the TUI. |
 | `d2l login [-i] [--cookie -]` | Log in and save the session. |
 | `d2l logout [--all]` | Delete the session, and with `--all` the login browser profiles. |
-| `d2l sync [--all] [-n] [FILTER...]` | Download course files. |
 | `d2l config [--edit] [--path]` | Print the config path, creating the file if needed. `--edit` opens it in `$EDITOR`. |
+| `d2l clean` | Delete the files cached for opening. |
 | `d2l version` | Print the version. |
 | `d2l help` | Print help. |
-
-### Sync
-
-`d2l sync` downloads every visible file from your current and pinned courses. Files that are already up to date are skipped, so running it again only fetches what changed. Files that are locked or outside their release dates on Learn are left out and counted as not available yet.
-
-```sh
-d2l sync              # current and pinned courses
-d2l sync cs135 math   # only courses whose name or code contains "cs135" or "math"
-d2l sync --all        # every course you are enrolled in, past terms included
-d2l sync -n           # list what would be downloaded without fetching
-```
-
-It prints one line per downloaded file and a summary at the end. It exits with status 1 if anything failed.
-
-When a file changes on Learn, sync replaces your copy. Edits you made to the local file, such as PDF annotations saved in place, are lost. Keep annotated copies under another name or outside the download folder.
 
 ## Keys
 
@@ -92,7 +77,7 @@ Inside a course, `1` to `4`, `tab` and `shift+tab` switch between the Content, A
 | Assignments | Open the submission page | `w` does the same |
 | Grades | Show the grader's comments | The final grade comes first once it is released |
 
-Opening a file downloads it first if the local copy is missing or out of date. Pages that only work on Learn, such as quizzes, open in the web browser.
+Opening a file downloads it to the cache first if the cached copy is missing or out of date. Pages that only work on Learn, such as quizzes, open in the web browser.
 
 Quitting while downloads are running asks you to press `q` again. The downloads stop and their partial files are removed.
 
@@ -106,7 +91,6 @@ The config file lives at `~/.config/d2l/config.toml`. Run `d2l config` to create
 
 ```toml
 base_url = "https://learn.uwaterloo.ca"
-download_dir = "~/Learn"
 concurrency = 4
 
 # Browser used by "d2l login", as a path or command. Leave unset to use the
@@ -129,20 +113,21 @@ Opener commands run through `sh`, so they can include arguments.
 
 ## Where files go
 
-Files go under `download_dir`, one folder per course, with a subfolder per module:
+`d` saves into the directory you started `d2l` from. A single file lands there as is. A folder or a whole course keeps its structure, one subfolder per module:
 
 ```
-~/Learn/
-  CS 135/
-    Week 1/
-      lec01.pdf
+./CS 135/
+  Week 1/
+    lec01.pdf
 ```
 
-d2l sets each downloaded file's modification time to when the file last changed on Learn. That is how it tells whether a local copy is current.
+Announcement attachments go straight into the current directory.
+
+d2l never overwrites a file in the current directory. If one with the same name exists, it leaves the file alone and warns you in the status bar. To get a newer version from Learn, delete or rename your copy and press `d` again.
 
 When two files in one module have the same name, the older topic keeps the name and the others get their topic ID added, as in `handout (48213).pdf`. Folders with the same name get the same treatment.
 
-Announcement attachments go in `Announcements/<title> (<id>)/` inside the course folder, one folder per announcement.
+Files you open are downloaded to `~/.cache/d2l` (`$XDG_CACHE_HOME/d2l` if set) with the same layout, and the content list marks them as cached. d2l sets each cached file's modification time to when it last changed on Learn, and downloads it again once Learn has a newer version. Edits saved in place to a cached file are lost when that happens. `d2l clean` deletes the cache.
 
 ## How it works
 

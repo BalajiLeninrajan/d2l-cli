@@ -5,10 +5,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"runtime/debug"
-	"sync"
 
 	"github.com/BalajiLeninrajan/d2l-cli/internal/config"
 	"github.com/BalajiLeninrajan/d2l-cli/internal/d2l"
@@ -32,9 +30,8 @@ Usage:
   d2l                      browse courses and content
   d2l login [flags]        log in and save the session
   d2l logout [--all]       forget the session
-  d2l sync [flags] [FILTER...]
-                           download course files into the download dir
   d2l config [flags]       show or edit the config file
+  d2l clean                delete files cached for opening
   d2l version              print the version
   d2l help                 show this help
 
@@ -48,11 +45,6 @@ Login flags:
 
 Logout flags:
   --all                    also delete the login browser profiles
-
-Sync flags:
-  --all                    sync every enrollment, not just current and pinned
-  -n, --dry-run            list what would be downloaded
-  FILTER                   keep courses whose name or code contains FILTER
 
 Config flags:
   --edit                   open the config in $EDITOR
@@ -68,7 +60,8 @@ Keys in a course:
   1-4, tab   switch between Content, Announcements, Assignments, Grades
              (shift+tab goes back)
   enter      open a file, folder, announcement, assignment or grade comment
-  d          download the file or folder, or save an announcement's attachments
+  d          download the file or folder, or save an announcement's
+             attachments, into the current directory
   o          open an announcement's first attachment
   w          open the file, folder or assignment on Learn
   f          search this course
@@ -90,10 +83,10 @@ func Main(args []string) int {
 		return runLogin(rest)
 	case "logout":
 		return runLogout(rest)
-	case "sync":
-		return runSync(rest)
 	case "config":
 		return runConfig(rest)
+	case "clean":
+		return runClean(rest)
 	case "version", "--version":
 		fmt.Println(version())
 		return exitOK
@@ -163,8 +156,8 @@ func newFlagSet(name, synopsis string) *flag.FlagSet {
 	return fs
 }
 
-// parse parses args with flags allowed anywhere, so "d2l sync cs135 -n"
-// works. It returns the positional arguments, or an exit code when parsing
+// parse parses args with flags allowed before or after positional
+// arguments. It returns the positional arguments, or an exit code when parsing
 // stops the command.
 func parse(fs *flag.FlagSet, args []string) ([]string, int, bool) {
 	var pos []string
@@ -203,15 +196,3 @@ func version() string {
 
 // isUnauthorized reports whether err means the session is no longer valid.
 func isUnauthorized(err error) bool { return errors.Is(err, d2l.ErrUnauthorized) }
-
-// lineWriter serializes whole lines from concurrent goroutines.
-type lineWriter struct {
-	mu sync.Mutex
-	w  io.Writer
-}
-
-func (l *lineWriter) printf(format string, args ...any) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	fmt.Fprintf(l.w, format+"\n", args...)
-}

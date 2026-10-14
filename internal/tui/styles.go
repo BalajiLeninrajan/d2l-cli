@@ -23,6 +23,7 @@ var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
 	subtleStyle   = lipgloss.NewStyle().Foreground(colSubtle)
 	errStyle      = lipgloss.NewStyle().Foreground(colErr)
+	warnStyle     = lipgloss.NewStyle().Foreground(colWarn)
 	statusStyle   = lipgloss.NewStyle().Foreground(colSubtle)
 	progressStyle = lipgloss.NewStyle().Foreground(colAccent)
 	tabActive     = lipgloss.NewStyle().Bold(true).Foreground(colAccent).Underline(true)

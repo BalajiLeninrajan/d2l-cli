@@ -70,13 +70,12 @@ func file(id int, url string) d2l.Topic {
 }
 
 func TestEntriesPaths(t *testing.T) {
-	cfg := &config.Config{DownloadDir: "/dl"}
 	var c d2l.Course
 	c.OrgUnit.Name = "CS 135: Design"
 	inner := d2l.Module{ModuleID: 2, Title: "a/b", Topics: []d2l.Topic{file(9, "/x/lec01.pdf")}}
 	root := &d2l.Module{Modules: []d2l.Module{{ModuleID: 1, Title: "Week 1", Modules: []d2l.Module{inner}}}}
 
-	es := Entries(root, CourseDir(cfg, c), nil)
+	es := Entries(root, CourseDir("/dl", c), nil)
 	if len(es) != 1 {
 		t.Fatalf("entries = %+v", es)
 	}
@@ -85,7 +84,7 @@ func TestEntriesPaths(t *testing.T) {
 		t.Errorf("entry = %+v, want dest %q", es[0], want)
 	}
 	levels := []*d2l.Module{root, &root.Modules[0], &root.Modules[0].Modules[0]}
-	if got := ModuleDir(cfg, c, levels); got != filepath.Dir(want) {
+	if got := ModuleDir("/dl", c, levels); got != filepath.Dir(want) {
 		t.Errorf("ModuleDir = %q, want %q", got, filepath.Dir(want))
 	}
 }

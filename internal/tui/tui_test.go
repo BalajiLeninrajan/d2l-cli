@@ -1,6 +1,10 @@
 package tui
 
 import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -88,5 +92,19 @@ func TestNewDownloadSkipsUnavailable(t *testing.T) {
 	m := newDownload(d2l.Course{}, es)
 	if len(m.items) != 1 || m.items[0].dest != "/a" || m.unavailable != 2 {
 		t.Errorf("download = %+v", m)
+	}
+}
+
+func TestDownloadKeepsExistingFile(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "lec01.pdf")
+	if err := os.WriteFile(dest, []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	a := &app{ctx: context.Background()}
+	if _, err := a.download(dlItem{dest: dest}, dest); !errors.Is(err, errExists) {
+		t.Errorf("err = %v, want errExists", err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "mine" {
+		t.Errorf("file changed to %q", b)
 	}
 }

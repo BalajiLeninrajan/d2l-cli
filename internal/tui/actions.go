@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -91,7 +92,8 @@ func unavailable(t d2l.Topic, now time.Time) string {
 }
 
 // openTopic opens a topic the way enter does in the content list: files are
-// downloaded first if stale, links open directly, the rest open on Learn.
+// downloaded to the cache first if stale, links open directly, the rest open
+// on Learn. e.Dest is the topic's place in the cache.
 func (a *app) openTopic(c d2l.Course, e files.Entry) tea.Cmd {
 	t := e.Topic
 	switch kindOf(t) {
@@ -103,7 +105,7 @@ func (a *app) openTopic(c d2l.Course, e files.Entry) tea.Cmd {
 			if files.Fresh(e.Dest, t) {
 				return openPathMsg{e.Dest}
 			}
-			return downloadMsg{items: []dlItem{{course: c, topic: t, dest: e.Dest}}, open: true}
+			return downloadMsg{items: []dlItem{{course: c, topic: t, dest: e.Dest, cached: true}}, open: true}
 		}
 	case kindLink:
 		return openURL(a.client.AbsURL(t.URL))
@@ -112,7 +114,9 @@ func (a *app) openTopic(c d2l.Course, e files.Entry) tea.Cmd {
 	}
 }
 
-func downloadTopic(c d2l.Course, e files.Entry) tea.Cmd {
+// downloadTopic saves a File topic into the working directory. Only the file
+// name of e.Dest is kept.
+func (a *app) downloadTopic(c d2l.Course, e files.Entry) tea.Cmd {
 	t := e.Topic
 	if !t.IsFile() {
 		return info(t.Title + " is not a file. Press w to open it on Learn.")
@@ -120,8 +124,9 @@ func downloadTopic(c d2l.Course, e files.Entry) tea.Cmd {
 	if u := unavailable(t, time.Now()); u != "" {
 		return info(fmt.Sprintf("Can't download %s yet: %s.", t.Title, u))
 	}
+	dest := filepath.Join(a.cwd, filepath.Base(e.Dest))
 	return func() tea.Msg {
-		return downloadMsg{items: []dlItem{{course: c, topic: t, dest: e.Dest}}}
+		return downloadMsg{items: []dlItem{{course: c, topic: t, dest: dest}}}
 	}
 }
 
@@ -131,41 +136,56 @@ func (a *app) downloadCourse(c d2l.Course) tea.Cmd {
 		if err != nil {
 			return statusMsg{err: fmt.Errorf("loading content for %s: %w", c.Code(), err)}
 		}
-		return newDownload(c, files.Entries(toc.Root(), files.CourseDir(a.cfg, c), nil))
+		return newDownload(c, files.Entries(toc.Root(), files.CourseDir(a.cwd, c), nil))
 	}
 	return tea.Batch(info("Loading content for "+c.Code()+"..."), load)
 }
 
-// announcementDir is where one announcement's attachments go. Each gets its
-// own folder, named with its ID, because attachments from different posts
-// often share names like image.png.
+// announcementDir is where one announcement's attachments are cached for
+// opening. Each gets its own folder, named with its ID, because attachments
+// from different posts often share names like image.png.
 func announcementDir(a *app, c d2l.Course, n d2l.NewsItem) string {
 	title := []rune(files.Sanitize(n.Title))
 	if len(title) > 80 {
 		title = []rune(strings.TrimRight(string(title[:80]), " ."))
 	}
-	return filepath.Join(files.CourseDir(a.cfg, c), "Announcements", fmt.Sprintf("%s (%d)", string(title), n.ID))
+	return filepath.Join(files.CourseDir(a.cache, c), "Announcements", fmt.Sprintf("%s (%d)", string(title), n.ID))
 }
 
 func (a *app) saveAttachments(c d2l.Course, n d2l.NewsItem) tea.Cmd {
 	if len(n.Attachments) == 0 {
 		return info("This announcement has no attachments.")
 	}
-	dir := announcementDir(a, c, n)
 	save := func() tea.Msg {
 		if !a.begin() {
 			return nil
 		}
 		defer a.work.Done()
-		names := make([]string, 0, len(n.Attachments))
+		var saved, exist []string
 		for _, att := range n.Attachments {
-			p, err := files.DownloadAttachment(a.ctx, a.client, c.ID(), n.ID, att, dir)
+			name := files.Sanitize(att.FileName)
+			if _, err := os.Lstat(filepath.Join(a.cwd, name)); err == nil {
+				exist = append(exist, name)
+				continue
+			}
+			p, err := files.DownloadAttachment(a.ctx, a.client, c.ID(), n.ID, att, a.cwd)
 			if err != nil {
 				return statusMsg{err: fmt.Errorf("saving %s: %w", att.FileName, err)}
 			}
-			names = append(names, filepath.Base(p))
+			saved = append(saved, filepath.Base(p))
 		}
-		return statusMsg{text: fmt.Sprintf("Saved %s → %s", strings.Join(names, ", "), a.short(dir))}
+		var parts []string
+		if len(saved) > 0 {
+			parts = append(parts, "Saved "+strings.Join(saved, ", ")+".")
+		}
+		if len(exist) > 0 {
+			verb := " already exist."
+			if len(exist) == 1 {
+				verb = " already exists."
+			}
+			parts = append(parts, strings.Join(exist, ", ")+verb)
+		}
+		return statusMsg{text: strings.Join(parts, " "), warn: len(exist) > 0}
 	}
 	return tea.Batch(info(fmt.Sprintf("Saving %s...", plural(len(n.Attachments), "attachment", "attachments"))), save)
 }

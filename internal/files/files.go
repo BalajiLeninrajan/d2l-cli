@@ -43,9 +43,9 @@ func Sanitize(s string) string {
 	return s
 }
 
-// CourseDir is where a course's files live.
-func CourseDir(cfg *config.Config, c d2l.Course) string {
-	return filepath.Join(cfg.DownloadDir, Sanitize(c.Name()))
+// CourseDir is the folder of a course's files under root.
+func CourseDir(root string, c d2l.Course) string {
+	return filepath.Join(root, Sanitize(c.Name()))
 }
 
 // FileName picks the local name for a File topic: the name from its URL,
@@ -108,8 +108,8 @@ func unique(ids []int, names map[int]string, suffix func(string, int) string) ma
 
 // ModuleDir is the folder of the last module in levels. levels[0] is the
 // TOC root and each later module is a child of the one before it.
-func ModuleDir(cfg *config.Config, c d2l.Course, levels []*d2l.Module) string {
-	dir := CourseDir(cfg, c)
+func ModuleDir(root string, c d2l.Course, levels []*d2l.Module) string {
+	dir := CourseDir(root, c)
 	for i := 1; i < len(levels); i++ {
 		dir = filepath.Join(dir, DirNames(levels[i-1])[levels[i].ModuleID])
 	}

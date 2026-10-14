@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -15,12 +17,17 @@ import (
 	"github.com/BalajiLeninrajan/d2l-cli/internal/files"
 )
 
-// dlItem is one File topic to fetch to dest.
+// dlItem is one File topic to fetch to dest. A cached item is refreshed
+// when stale; any other item is left alone if dest exists.
 type dlItem struct {
 	course d2l.Course
 	topic  d2l.Topic
 	dest   string
+	cached bool
 }
+
+// errExists means a download was not written because its file exists.
+var errExists = errors.New("already exists")
 
 // downloadMsg asks the root to queue a download job. With open set, the
 // first file is opened once it is on disk. unavailable counts files left
@@ -55,7 +62,7 @@ type jobProgressMsg struct {
 type jobDoneMsg struct {
 	id                          int
 	downloaded, skipped, failed int
-	unavailable                 int
+	exists, unavailable         int
 	err                         error // first failure
 	dests                       []string
 	open                        bool
@@ -161,6 +168,8 @@ func (r *root) jobDone(m jobDoneMsg) tea.Cmd {
 	switch {
 	case m.failed > 0 && single:
 		r.setStatus(statusMsg{err: fmt.Errorf("downloading %s: %w", filepath.Base(m.dests[0]), m.err)})
+	case single && m.exists == 1:
+		r.setStatus(statusMsg{text: r.app.short(m.dests[0]) + " already exists. Delete it to download again.", warn: true})
 	case single && m.open:
 		cmds = append(cmds, r.open(m.dests[0]))
 	case single && m.skipped == 1:
@@ -168,7 +177,10 @@ func (r *root) jobDone(m jobDoneMsg) tea.Cmd {
 	case single:
 		r.setStatus(statusMsg{text: "Downloaded " + r.app.short(m.dests[0])})
 	default:
-		s := fmt.Sprintf("Downloaded %d, skipped %d, failed %d", m.downloaded, m.skipped, m.failed)
+		s := fmt.Sprintf("Downloaded %d, failed %d", m.downloaded, m.failed)
+		if m.exists > 0 {
+			s += fmt.Sprintf(", %d already exist", m.exists)
+		}
 		if m.unavailable > 0 {
 			s += fmt.Sprintf(", %d not available yet", m.unavailable)
 		}
@@ -176,7 +188,7 @@ func (r *root) jobDone(m jobDoneMsg) tea.Cmd {
 		if m.err != nil {
 			r.setStatus(statusMsg{err: fmt.Errorf("%s (%s)", s, errText(m.err))})
 		} else {
-			r.setStatus(statusMsg{text: s})
+			r.setStatus(statusMsg{text: s, warn: m.exists > 0})
 		}
 	}
 	return tea.Batch(cmds...)
@@ -212,6 +224,8 @@ func (a *app) runJob(j *job) tea.Cmd {
 				done++
 				n = done
 				switch {
+				case errors.Is(err, errExists):
+					res.exists++
 				case err != nil:
 					res.failed++
 					if res.err == nil {
@@ -238,6 +252,11 @@ func (a *app) download(it dlItem, dest string) (bool, error) {
 		return false, err
 	}
 	defer unlock()
+	if !it.cached {
+		if _, err := os.Lstat(dest); err == nil {
+			return false, errExists
+		}
+	}
 	return files.Download(a.ctx, a.client, it.course.ID(), it.topic, dest)
 }
 
@@ -274,11 +293,11 @@ func (p *pathLocks) lock(ctx context.Context, path string) (func(), error) {
 	}
 }
 
-// short shows p relative to the download dir, where every download lands,
-// so the status bar keeps the part that differs.
+// short shows p relative to the working directory, where every download
+// lands, so the status bar keeps the part that differs.
 func (a *app) short(p string) string {
-	if within(p, a.cfg.DownloadDir) {
-		if rel, err := filepath.Rel(a.cfg.DownloadDir, p); err == nil && rel != "." {
+	if within(p, a.cwd) {
+		if rel, err := filepath.Rel(a.cwd, p); err == nil {
 			return rel
 		}
 	}

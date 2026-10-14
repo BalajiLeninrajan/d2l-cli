@@ -14,8 +14,6 @@ import (
 type Config struct {
 	// BaseURL is the Brightspace instance, without a trailing slash.
 	BaseURL string `toml:"base_url"`
-	// DownloadDir is where course files are mirrored. "~" is expanded.
-	DownloadDir string `toml:"download_dir"`
 	// Browser is the browser `d2l login` launches, as a path or command. Empty means the default browser.
 	Browser string `toml:"browser"`
 	// Openers maps a file extension (no dot) to a command that runs detached, e.g. pdf = "zathura".
@@ -29,7 +27,6 @@ type Config struct {
 const defaultFile = `# d2l-cli configuration
 
 base_url = "https://learn.uwaterloo.ca"
-download_dir = "~/Learn"
 concurrency = 4
 
 # Browser used by "d2l login", as a path or command. Leave unset to use the
@@ -63,6 +60,14 @@ func StateDir() string {
 	return filepath.Join(home, ".local", "state", "d2l")
 }
 
+// CacheDir holds files downloaded to be opened.
+func CacheDir() string {
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, "d2l")
+	}
+	return filepath.Join(os.TempDir(), "d2l-cache")
+}
+
 func Path() string { return filepath.Join(Dir(), "config.toml") }
 
 // EnsureFile writes the default config if none exists and returns its path.
@@ -80,24 +85,14 @@ func EnsureFile() (string, error) {
 func Load() (*Config, error) {
 	c := &Config{
 		BaseURL:     "https://learn.uwaterloo.ca",
-		DownloadDir: "~/Learn",
 		Concurrency: 4,
 	}
 	if _, err := toml.DecodeFile(Path(), c); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 	c.BaseURL = strings.TrimRight(c.BaseURL, "/")
-	c.DownloadDir = expandHome(c.DownloadDir)
 	if c.Concurrency < 1 {
 		c.Concurrency = 1
 	}
 	return c, nil
-}
-
-func expandHome(p string) string {
-	if p == "~" || strings.HasPrefix(p, "~/") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, p[1:])
-	}
-	return p
 }

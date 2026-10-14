@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,9 @@ type app struct {
 	tocs   tocCache
 	locks  pathLocks
 	ids    atomic.Int64
+
+	// cwd receives downloads. cache holds files downloaded to be opened.
+	cwd, cache string
 
 	// work counts goroutines that write files, so Run can let them remove
 	// their temp files before the process exits.
@@ -88,6 +92,7 @@ type (
 	popMsg    struct{ v view }
 	statusMsg struct {
 		text string
+		warn bool // show text as a warning
 		err  error
 	}
 	openPathMsg struct{ path string }
@@ -141,11 +146,17 @@ func Run(cfg *config.Config, client *d2l.Client) error {
 	if lipgloss.HasDarkBackground() {
 		style = "dark"
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	a := &app{
 		cfg:    cfg,
 		client: client,
+		cwd:    cwd,
+		cache:  config.CacheDir(),
 		ctx:    ctx,
 		md: []glamour.TermRendererOption{
 			glamour.WithStandardStyle(style),
@@ -156,7 +167,7 @@ func Run(cfg *config.Config, client *d2l.Client) error {
 	r.stack = []view{newCoursesView(a)}
 	p := tea.NewProgram(r, tea.WithAltScreen())
 	a.send = p.Send
-	_, err := p.Run()
+	_, err = p.Run()
 	a.shutdown(cancel)
 	if err == nil && a.expired.Load() {
 		return d2l.ErrUnauthorized
@@ -165,12 +176,13 @@ func Run(cfg *config.Config, client *d2l.Client) error {
 }
 
 type root struct {
-	app       *app
-	stack     []view
-	w, h      int
-	status    string
-	statusErr bool
-	jobs      jobQueue
+	app        *app
+	stack      []view
+	w, h       int
+	status     string
+	statusErr  bool
+	statusWarn bool
+	jobs       jobQueue
 	// quitArmed is set after a quit was refused because downloads are
 	// running; the next quit goes through.
 	quitArmed bool
@@ -260,10 +272,10 @@ func (r *root) quit(key string) tea.Cmd {
 
 func (r *root) setStatus(m statusMsg) {
 	if m.err != nil {
-		r.status, r.statusErr = errText(m.err), true
+		r.status, r.statusErr, r.statusWarn = errText(m.err), true, false
 		return
 	}
-	r.status, r.statusErr = m.text, false
+	r.status, r.statusErr, r.statusWarn = m.text, false, m.warn
 }
 
 func (r *root) View() string {
@@ -279,8 +291,11 @@ func (r *root) statusView() string {
 	left = truncate(left, max(0, room))
 	gap := max(1, r.w-lipgloss.Width(left)-lipgloss.Width(right))
 	ls := statusStyle
-	if r.statusErr {
+	switch {
+	case r.statusErr:
 		ls = errStyle
+	case r.statusWarn:
+		ls = warnStyle
 	}
 	return ls.Render(left) + strings.Repeat(" ", gap) + progressStyle.Render(right)
 }
